@@ -54,23 +54,9 @@ OwnerMap uses Microsoft's MSAL.js library to handle sign-in. MSAL requires a **r
 
 Choose the serving method that fits your situation:
 
-### Option A — SharePoint (Recommended for Internal Teams)
+### Option A — GitHub Pages (Recommended for Internal Teams)
 
-Best for sharing with helpdesk staff, auditors, or anyone in your org who shouldn't need any setup.
-
-**Steps:**
-1. Upload `ownermap.html` to a SharePoint document library
-2. Open the file in SharePoint and copy the full URL from your browser address bar, for example:
-   ```
-   https://yourcompany.sharepoint.com/sites/IT/Shared%20Documents/ownermap.html
-   ```
-3. Go to your app registration → **Authentication → Add a platform → Web**
-4. Paste that exact URL as the Redirect URI and click Save
-5. Share the SharePoint link with your team — they click it, sign in with their Microsoft account, and the tool runs
-
-### Option B — GitHub Pages (Recommended for Public / Cross-Org Use)
-
-Best for making the tool available outside your org, sharing with external auditors, or keeping a stable public URL.
+Best for sharing with your IT team, helpdesk staff, or external auditors. Free, stable URL, no server to maintain.
 
 **Steps:**
 1. Fork this repo or push it to your own GitHub account
@@ -83,7 +69,7 @@ Best for making the tool available outside your org, sharing with external audit
 5. Paste that GitHub Pages URL as the Redirect URI and click Save
 6. Anyone can now open that URL, sign in, and run the tool
 
-### Option C — Local Python Web Server (Technical Users / One-Off Audits)
+### Option B — Local Python Web Server (Technical Users / One-Off Audits)
 
 Best for running a quick audit on your own machine without uploading the file anywhere.
 
@@ -111,7 +97,6 @@ Best for running a quick audit on your own machine without uploading the file an
 
 | Serving Method | Redirect URI to Register |
 |---|---|
-| SharePoint | `https://yourcompany.sharepoint.com/sites/IT/Shared%20Documents/ownermap.html` |
 | GitHub Pages | `https://yourusername.github.io/OwnerMap/ownermap.html` |
 | Local Python server | `http://localhost:8080/ownermap.html` |
 
