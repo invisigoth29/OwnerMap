@@ -151,4 +151,3 @@ MIT — free to use, modify, and distribute. Attribution appreciated.
 
 ---
 
-*Built by [HexStrike](https://hexstrike.com) — cybersecurity consulting for the real world.*
