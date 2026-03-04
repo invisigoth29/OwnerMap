@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OwnerMap — Group Ownership Auditor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Barlow:wght@300;400;500;600;700&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<script src="https://alcdn.msauth.net/browser/2.39.0/js/msal-browser.min.js"></script>
+
+<style>
+  :root {
+    --bg:        #080b12;
+    --surface:   #0f1520;
+    --card:      #141c2b;
+    --border:    #1e2d45;
+    --border2:   #263650;
+    --cyan:      #00c8e0;
+    --cyan-dim:  #0099aa;
+    --amber:     #f5a623;
+    --amber-dim: #b07518;
+    --red:       #e84545;
+    --green:     #22c55e;
+    --text:      #d4dff0;
+    --text-dim:  #7a90b0;
+    --text-muted:#3a4f6a;
+    --mono:      'Space Mono', monospace;
+    --sans:      'Barlow', sans-serif;
+    --cond:      'Barlow Condensed', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); overflow-x: hidden; }
+
+  /* ─── SCANLINES OVERLAY ─── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,200,224,0.015) 2px, rgba(0,200,224,0.015) 4px);
+  }
+
+  /* ─── HEADER ─── */
+  header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    height: 56px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+  }
+  .logo {
+    font-family: var(--cond); font-size: 18px; font-weight: 700; letter-spacing: 3px;
+    color: var(--cyan); text-transform: uppercase;
+  }
+  .logo span { color: var(--text-dim); font-weight: 300; }
+  .header-badge {
+    font-family: var(--mono); font-size: 10px; color: var(--amber);
+    border: 1px solid var(--amber-dim); padding: 3px 8px; border-radius: 2px;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+
+  /* ─── MAIN LAYOUT ─── */
+  main { position: relative; z-index: 1; padding-top: 56px; min-height: 100vh; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 32px 24px; }
+
+  /* ─── SECTION VISIBILITY ─── */
+  .section { display: none; }
+  .section.active { display: block; }
+
+  /* ─── AUTH SCREEN ─── */
+  .auth-wrap {
+    display: flex; align-items: center; justify-content: center;
+    min-height: calc(100vh - 56px); padding: 32px;
+  }
+  .auth-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 4px; width: 100%; max-width: 540px;
+    overflow: hidden;
+  }
+  .auth-header {
+    background: linear-gradient(135deg, #0a1628 0%, #0f1e38 100%);
+    border-bottom: 1px solid var(--border); padding: 28px 32px;
+  }
+  .auth-title {
+    font-family: var(--cond); font-size: 26px; font-weight: 700;
+    color: var(--text); letter-spacing: 1px; line-height: 1;
+  }
+  .auth-subtitle {
+    font-size: 12px; color: var(--text-dim); margin-top: 6px; letter-spacing: 0.5px;
+  }
+  .auth-body { padding: 28px 32px; }
+
+  /* mode toggle */
+  .mode-toggle {
+    display: flex; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 3px; overflow: hidden; margin-bottom: 24px;
+  }
+  .mode-btn {
+    flex: 1; padding: 9px 12px; border: none; background: transparent;
+    color: var(--text-dim); font-family: var(--mono); font-size: 11px;
+    cursor: pointer; transition: all 0.15s; text-transform: uppercase; letter-spacing: 1px;
+  }
+  .mode-btn.active { background: var(--cyan); color: #000; font-weight: 700; }
+  .mode-btn:hover:not(.active) { background: var(--border); color: var(--text); }
+
+  /* form */
+  .field { margin-bottom: 16px; }
+  .field label {
+    display: block; font-family: var(--mono); font-size: 10px; color: var(--cyan);
+    text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 6px;
+  }
+  .field input {
+    width: 100%; background: var(--surface); border: 1px solid var(--border2);
+    color: var(--text); font-family: var(--mono); font-size: 12px;
+    padding: 10px 12px; border-radius: 2px; outline: none;
+    transition: border-color 0.15s;
+  }
+  .field input:focus { border-color: var(--cyan); }
+  .field input::placeholder { color: var(--text-muted); }
+  .field-hint {
+    font-size: 11px; color: var(--text-dim); margin-top: 4px; line-height: 1.4;
+  }
+  .field-hint a { color: var(--cyan); text-decoration: none; }
+  .field-hint a:hover { text-decoration: underline; }
+
+  .secret-warning {
+    background: rgba(245,166,35,0.08); border: 1px solid rgba(245,166,35,0.3);
+    border-radius: 2px; padding: 10px 12px; margin-bottom: 16px;
+    font-size: 11px; color: var(--amber); line-height: 1.5;
+    display: none;
+  }
+  .secret-warning.visible { display: block; }
+
+  .btn-primary {
+    width: 100%; padding: 13px; background: var(--cyan); color: #000;
+    border: none; border-radius: 2px; font-family: var(--cond); font-size: 15px;
+    font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+    cursor: pointer; transition: all 0.15s; margin-top: 8px;
+  }
+  .btn-primary:hover { background: #00e8ff; transform: translateY(-1px); }
+  .btn-primary:active { transform: translateY(0); }
+  .btn-primary:disabled { background: var(--border2); color: var(--text-muted); cursor: not-allowed; transform: none; }
+
+  .permissions-box {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 2px; padding: 14px 16px; margin-top: 20px;
+  }
+  .permissions-title { font-family: var(--mono); font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .perm-item { font-family: var(--mono); font-size: 11px; color: var(--green); margin-bottom: 3px; }
+  .perm-item::before { content: '✓ '; color: var(--green); }
+  .perm-note { font-size: 11px; color: var(--text-muted); margin-top: 8px; line-height: 1.4; }
+
+  .error-box {
+    background: rgba(232,69,69,0.1); border: 1px solid rgba(232,69,69,0.4);
+    border-radius: 2px; padding: 10px 12px; margin-top: 12px;
+    font-size: 12px; color: var(--red); display: none;
+  }
+  .error-box.visible { display: block; }
+
+  /* ─── PROGRESS SCREEN ─── */
+  .progress-wrap {
+    display: flex; align-items: center; justify-content: center;
+    min-height: calc(100vh - 56px); padding: 32px;
+  }
+  .progress-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 4px; width: 100%; max-width: 540px; padding: 36px;
+    text-align: center;
+  }
+  .progress-icon {
+    font-size: 40px; margin-bottom: 20px; animation: spin 2s linear infinite;
+    display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .progress-title {
+    font-family: var(--cond); font-size: 22px; font-weight: 700; color: var(--text);
+    margin-bottom: 6px; letter-spacing: 1px;
+  }
+  .progress-status {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    margin-bottom: 24px; min-height: 16px;
+  }
+  .progress-bar-wrap {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 2px; height: 6px; overflow: hidden; margin-bottom: 12px;
+  }
+  .progress-bar {
+    height: 100%; background: linear-gradient(90deg, var(--cyan-dim), var(--cyan));
+    border-radius: 2px; transition: width 0.3s ease; width: 0%;
+  }
+  .progress-counts {
+    display: flex; justify-content: space-between;
+    font-family: var(--mono); font-size: 10px; color: var(--text-muted);
+  }
+
+  .log-stream {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 2px;
+    padding: 12px; margin-top: 20px; max-height: 160px; overflow-y: auto;
+    text-align: left;
+  }
+  .log-line {
+    font-family: var(--mono); font-size: 10px; color: var(--text-muted);
+    line-height: 1.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .log-line.ok  { color: var(--green); }
+  .log-line.warn { color: var(--amber); }
+  .log-line.info { color: var(--cyan); }
+
+  /* ─── RESULTS SCREEN ─── */
+  .results-wrap { padding: 24px; }
+
+  /* stats row */
+  .stats-row {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px; margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 3px; padding: 16px 20px;
+    transition: border-color 0.15s;
+  }
+  .stat-card:hover { border-color: var(--border2); }
+  .stat-card.danger { border-color: rgba(232,69,69,0.4); background: rgba(232,69,69,0.04); }
+  .stat-card.warning { border-color: rgba(245,166,35,0.4); background: rgba(245,166,35,0.04); }
+  .stat-label { font-family: var(--mono); font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px; }
+  .stat-value { font-family: var(--cond); font-size: 36px; font-weight: 700; color: var(--text); line-height: 1; }
+  .stat-card.danger .stat-value  { color: var(--red); }
+  .stat-card.warning .stat-value { color: var(--amber); }
+  .stat-sub { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+
+  /* toolbar */
+  .toolbar {
+    display: flex; gap: 12px; align-items: center;
+    flex-wrap: wrap; margin-bottom: 16px;
+  }
+  .search-wrap {
+    flex: 1; min-width: 240px; position: relative;
+  }
+  .search-wrap::before {
+    content: '⌕'; position: absolute; left: 12px; top: 50%;
+    transform: translateY(-50%); color: var(--text-dim); font-size: 16px;
+    pointer-events: none;
+  }
+  .search-input {
+    width: 100%; background: var(--card); border: 1px solid var(--border2);
+    color: var(--text); font-family: var(--sans); font-size: 13px;
+    padding: 9px 12px 9px 36px; border-radius: 2px; outline: none;
+    transition: border-color 0.15s;
+  }
+  .search-input:focus { border-color: var(--cyan); }
+
+  .filter-group { display: flex; gap: 8px; }
+  .filter-btn {
+    padding: 8px 14px; background: var(--card); border: 1px solid var(--border2);
+    color: var(--text-dim); font-family: var(--mono); font-size: 10px;
+    border-radius: 2px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px;
+    transition: all 0.15s; white-space: nowrap;
+  }
+  .filter-btn.active { border-color: var(--cyan); color: var(--cyan); background: rgba(0,200,224,0.08); }
+  .filter-btn.danger-filter.active { border-color: var(--red); color: var(--red); background: rgba(232,69,69,0.08); }
+  .filter-btn:hover:not(.active) { border-color: var(--border2); color: var(--text); }
+
+  .export-btn {
+    padding: 8px 16px; background: transparent; border: 1px solid var(--cyan-dim);
+    color: var(--cyan); font-family: var(--mono); font-size: 10px;
+    border-radius: 2px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px;
+    transition: all 0.15s; white-space: nowrap;
+  }
+  .export-btn:hover { background: rgba(0,200,224,0.08); }
+
+  .logout-btn {
+    padding: 8px 14px; background: transparent; border: 1px solid var(--border);
+    color: var(--text-dim); font-family: var(--mono); font-size: 10px;
+    border-radius: 2px; cursor: pointer; transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .logout-btn:hover { border-color: var(--red); color: var(--red); }
+
+  /* result count */
+  .result-info {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  .result-info span { color: var(--cyan); }
+
+  /* groups table */
+  .groups-table-wrap {
+    background: var(--card); border: 1px solid var(--border); border-radius: 3px;
+    overflow: hidden;
+  }
+  .table-header {
+    display: grid;
+    grid-template-columns: 32px 1fr 120px 120px 100px 110px 80px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    gap: 8px;
+  }
+  .th {
+    font-family: var(--mono); font-size: 9px; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 1.5px;
+    cursor: pointer; user-select: none; display: flex; align-items: center; gap: 4px;
+  }
+  .th:hover { color: var(--text); }
+  .th.sorted { color: var(--cyan); }
+  .th .sort-arrow { opacity: 0.5; font-size: 8px; }
+  .th.sorted .sort-arrow { opacity: 1; }
+
+  .group-row {
+    border-bottom: 1px solid var(--border); transition: background 0.1s;
+  }
+  .group-row:last-child { border-bottom: none; }
+  .group-row:hover > .group-row-main { background: rgba(255,255,255,0.02); }
+  .group-row.no-owner > .group-row-main { border-left: 2px solid var(--red); }
+  .group-row.has-owner > .group-row-main { border-left: 2px solid transparent; }
+
+  .group-row-main {
+    display: grid;
+    grid-template-columns: 32px 1fr 120px 120px 100px 110px 80px;
+    padding: 11px 16px; gap: 8px; cursor: pointer; align-items: center;
+  }
+
+  .expand-icon {
+    color: var(--text-muted); font-size: 10px; text-align: center;
+    transition: transform 0.2s; user-select: none;
+  }
+  .group-row.expanded .expand-icon { transform: rotate(90deg); color: var(--cyan); }
+
+  .group-name {
+    font-size: 13px; font-weight: 500; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .group-desc {
+    font-size: 11px; color: var(--text-dim); margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .td {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 7px; border-radius: 2px; font-family: var(--mono); font-size: 9px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .badge-security  { background: rgba(0,200,224,0.12); color: var(--cyan); border: 1px solid rgba(0,200,224,0.25); }
+  .badge-m365      { background: rgba(34,197,94,0.1); color: var(--green); border: 1px solid rgba(34,197,94,0.25); }
+  .badge-dist      { background: rgba(245,166,35,0.1); color: var(--amber); border: 1px solid rgba(245,166,35,0.25); }
+  .badge-onprem    { background: rgba(122,144,176,0.1); color: var(--text-dim); border: 1px solid var(--border); }
+  .badge-cloud     { background: rgba(0,200,224,0.06); color: var(--cyan-dim); border: 1px solid rgba(0,200,224,0.15); }
+
+  .owner-cell { display: flex; align-items: center; gap: 6px; }
+  .owner-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+  .owner-dot.ok   { background: var(--green); box-shadow: 0 0 6px rgba(34,197,94,0.5); }
+  .owner-dot.none { background: var(--red);   box-shadow: 0 0 6px rgba(232,69,69,0.5); }
+  .owner-name { font-family: var(--mono); font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .owner-name.missing { color: var(--red); }
+
+  .member-count { font-family: var(--mono); font-size: 12px; color: var(--text); }
+
+  /* expanded members panel */
+  .members-panel {
+    display: none; background: var(--surface); border-top: 1px solid var(--border);
+    padding: 16px 16px 16px 48px;
+  }
+  .group-row.expanded .members-panel { display: block; }
+
+  .members-section-title {
+    font-family: var(--mono); font-size: 9px; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 10px;
+  }
+  .members-section-title span { color: var(--cyan); }
+
+  .members-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 6px; margin-bottom: 14px;
+  }
+  .member-chip {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 2px; padding: 6px 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .member-type-icon {
+    font-size: 13px; flex-shrink: 0;
+  }
+  .member-info { min-width: 0; }
+  .member-name { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .member-upn  { font-family: var(--mono); font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .owners-list { margin-bottom: 14px; }
+  .owner-chip {
+    background: rgba(34,197,94,0.06); border: 1px solid rgba(34,197,94,0.2);
+    border-radius: 2px; padding: 6px 10px; margin-bottom: 4px;
+    display: inline-flex; align-items: center; gap: 8px; margin-right: 6px;
+  }
+  .owner-chip .member-name { color: var(--green); }
+
+  .no-owner-alert {
+    background: rgba(232,69,69,0.08); border: 1px solid rgba(232,69,69,0.3);
+    border-radius: 2px; padding: 8px 12px; margin-bottom: 10px;
+    font-size: 11px; color: var(--red); display: flex; align-items: center; gap: 8px;
+  }
+
+  .empty-members {
+    font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+    font-style: italic;
+  }
+
+  /* empty state */
+  .empty-state {
+    text-align: center; padding: 60px 24px;
+    font-family: var(--mono); font-size: 12px; color: var(--text-muted);
+  }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+  /* responsive */
+  @media (max-width: 900px) {
+    .table-header,
+    .group-row-main {
+      grid-template-columns: 32px 1fr 90px 60px;
+    }
+    .table-header .th:nth-child(n+5),
+    .group-row-main > *:nth-child(n+5) { display: none; }
+    .members-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ─── INLINE SPINNER ─── */
+  .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid var(--border2); border-top-color: var(--cyan);
+    border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Owner<span>Map</span></div>
+  <div class="header-badge">Identity &amp; Access Review</div>
+</header>
+
+<main>
+
+  <!-- ══ AUTH SCREEN ══ -->
+  <div id="authSection" class="section active">
+    <div class="auth-wrap">
+      <div class="auth-card">
+        <div class="auth-header">
+          <div class="auth-title">Group Ownership Audit</div>
+          <div class="auth-subtitle">Microsoft Entra ID &amp; Active Directory · SOX Pre-Audit Preparation</div>
+        </div>
+        <div class="auth-body">
+
+          <div class="mode-toggle">
+            <button class="mode-btn active" id="btnDelegated" onclick="setMode('delegated')">Current User</button>
+            <button class="mode-btn" id="btnAppReg" onclick="setMode('app')">App Registration</button>
+          </div>
+
+          <div id="formDelegated">
+            <div class="field">
+              <label>Tenant ID</label>
+              <input type="text" id="d_tenantId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+              <div class="field-hint">Found in <strong>Entra ID → Overview → Tenant ID</strong></div>
+            </div>
+            <div class="field">
+              <label>Client ID (App Registration)</label>
+              <input type="text" id="d_clientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+              <div class="field-hint">Register an app in Entra and add it as redirect URI: <strong>http://localhost</strong> (or your file URL). Delegated permissions required — see below.</div>
+            </div>
+          </div>
+
+          <div id="formApp" style="display:none">
+            <div class="secret-warning visible" id="secretWarning">
+              ⚠ Client secrets stored in browser memory are visible to the current user session. Use this mode on trusted, secured workstations only. For production, use the Current User flow.
+            </div>
+            <div class="field">
+              <label>Tenant ID</label>
+              <input type="text" id="a_tenantId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+            </div>
+            <div class="field">
+              <label>Client ID</label>
+              <input type="text" id="a_clientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+            </div>
+            <div class="field">
+              <label>Client Secret</label>
+              <input type="password" id="a_clientSecret" placeholder="Your app client secret value">
+              <div class="field-hint">Application permissions required (not delegated). See required permissions below.</div>
+            </div>
+          </div>
+
+          <div id="errorBox" class="error-box"></div>
+
+          <button class="btn-primary" id="connectBtn" onclick="connect()">
+            Connect &amp; Enumerate Groups
+          </button>
+
+          <div class="permissions-box">
+            <div class="permissions-title">Required API Permissions</div>
+            <div class="perm-item">Group.Read.All</div>
+            <div class="perm-item">GroupMember.Read.All</div>
+            <div class="perm-item">User.Read.All</div>
+            <div class="perm-item">Directory.Read.All</div>
+            <div class="perm-note">For delegated mode: grant as <strong>Delegated</strong> permissions. For app mode: grant as <strong>Application</strong> permissions and add admin consent.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ PROGRESS SCREEN ══ -->
+  <div id="progressSection" class="section">
+    <div class="progress-wrap">
+      <div class="progress-card">
+        <div class="progress-icon">⚙</div>
+        <div class="progress-title">Enumerating Directory</div>
+        <div class="progress-status" id="progressStatus">Authenticating…</div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <div class="progress-counts">
+          <span id="progressLeft">Groups: 0</span>
+          <span id="progressRight">Members fetched: 0</span>
+        </div>
+        <div class="log-stream" id="logStream"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ RESULTS SCREEN ══ -->
+  <div id="resultsSection" class="section">
+    <div class="results-wrap">
+
+      <div class="stats-row" id="statsRow"></div>
+
+      <div class="toolbar">
+        <div class="search-wrap">
+          <input type="text" class="search-input" id="searchInput" placeholder="Search groups by name, description, or owner…" oninput="applyFilters()">
+        </div>
+        <div class="filter-group">
+          <button class="filter-btn active" id="fAll"      onclick="setFilter('all')">All Groups</button>
+          <button class="filter-btn danger-filter" id="fNoOwner" onclick="setFilter('noOwner')">No Owner ⚠</button>
+          <button class="filter-btn" id="fSecurity" onclick="setFilter('security')">Security</button>
+          <button class="filter-btn" id="fM365"     onclick="setFilter('m365')">M365</button>
+          <button class="filter-btn" id="fOnPrem"   onclick="setFilter('onprem')">On-Prem</button>
+        </div>
+        <button class="export-btn" onclick="exportCSV()">↓ Export CSV</button>
+        <button class="logout-btn" onclick="resetApp()">✕ Disconnect</button>
+      </div>
+
+      <div class="result-info" id="resultInfo"></div>
+
+      <div class="groups-table-wrap">
+        <div class="table-header">
+          <div></div>
+          <div class="th" onclick="sortBy('displayName')">
+            Group Name <span class="sort-arrow" id="sort_displayName">↕</span>
+          </div>
+          <div class="th" onclick="sortBy('type')">
+            Type <span class="sort-arrow" id="sort_type">↕</span>
+          </div>
+          <div class="th" onclick="sortBy('source')">
+            Source <span class="sort-arrow" id="sort_source">↕</span>
+          </div>
+          <div class="th" onclick="sortBy('memberCount')">
+            Members <span class="sort-arrow" id="sort_memberCount">↕</span>
+          </div>
+          <div class="th" onclick="sortBy('ownerCount')">
+            Owners <span class="sort-arrow" id="sort_ownerCount">↕</span>
+          </div>
+          <div class="th">SOX Risk</div>
+        </div>
+        <div id="groupsList"></div>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ══════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════
+let appState = {
+  mode: 'delegated',
+  token: null,
+  msalInstance: null,
+  allGroups: [],
+  filteredGroups: [],
+  currentFilter: 'all',
+  sortKey: 'displayName',
+  sortDir: 1,
+  expandedRows: new Set()
+};
+
+// ══════════════════════════════════════════════
+// AUTH MODE
+// ══════════════════════════════════════════════
+function setMode(mode) {
+  appState.mode = mode;
+  document.getElementById('btnDelegated').classList.toggle('active', mode === 'delegated');
+  document.getElementById('btnAppReg').classList.toggle('active', mode === 'app');
+  document.getElementById('formDelegated').style.display = mode === 'delegated' ? 'block' : 'none';
+  document.getElementById('formApp').style.display       = mode === 'app'       ? 'block' : 'none';
+  clearError();
+}
+
+function showError(msg) {
+  const el = document.getElementById('errorBox');
+  el.textContent = msg; el.classList.add('visible');
+  document.getElementById('connectBtn').disabled = false;
+}
+function clearError() {
+  document.getElementById('errorBox').classList.remove('visible');
+}
+
+// ══════════════════════════════════════════════
+// CONNECT
+// ══════════════════════════════════════════════
+async function connect() {
+  clearError();
+  const btn = document.getElementById('connectBtn');
+  btn.disabled = true; btn.textContent = 'Connecting…';
+
+  try {
+    if (appState.mode === 'delegated') {
+      await connectDelegated();
+    } else {
+      await connectApp();
+    }
+    showSection('progressSection');
+    await enumerate();
+  } catch(e) {
+    btn.disabled = false; btn.textContent = 'Connect & Enumerate Groups';
+    showError(e.message || String(e));
+  }
+}
+
+async function connectDelegated() {
+  const tenantId  = document.getElementById('d_tenantId').value.trim();
+  const clientId  = document.getElementById('d_clientId').value.trim();
+  if (!tenantId || !clientId) throw new Error('Tenant ID and Client ID are required.');
+
+  const config = {
+    auth: {
+      clientId,
+      authority: `https://login.microsoftonline.com/${tenantId}`,
+      redirectUri: window.location.href.split('?')[0].split('#')[0]
+    },
+    cache: { cacheLocation: 'sessionStorage' }
+  };
+
+  appState.msalInstance = new msal.PublicClientApplication(config);
+  await appState.msalInstance.initialize();
+
+  const request = {
+    scopes: ['https://graph.microsoft.com/Group.Read.All',
+             'https://graph.microsoft.com/GroupMember.Read.All',
+             'https://graph.microsoft.com/User.Read.All',
+             'https://graph.microsoft.com/Directory.Read.All']
+  };
+
+  let tokenResp;
+  try {
+    tokenResp = await appState.msalInstance.acquireTokenSilent(request);
+  } catch {
+    tokenResp = await appState.msalInstance.acquireTokenPopup(request);
+  }
+  appState.token = tokenResp.accessToken;
+}
+
+async function connectApp() {
+  const tenantId     = document.getElementById('a_tenantId').value.trim();
+  const clientId     = document.getElementById('a_clientId').value.trim();
+  const clientSecret = document.getElementById('a_clientSecret').value.trim();
+  if (!tenantId || !clientId || !clientSecret) throw new Error('All fields required for App Registration mode.');
+
+  const body = new URLSearchParams({
+    client_id:     clientId,
+    client_secret: clientSecret,
+    scope:         'https://graph.microsoft.com/.default',
+    grant_type:    'client_credentials'
+  });
+
+  const resp = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+    method: 'POST', body,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  });
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data.error_description || 'Token request failed.');
+  appState.token = data.access_token;
+}
+
+// ══════════════════════════════════════════════
+// GRAPH HELPERS
+// ══════════════════════════════════════════════
+async function graphGet(url, retries = 3) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const resp = await fetch(url, {
+      headers: { Authorization: `Bearer ${appState.token}` }
+    });
+    if (resp.status === 429) {
+      const wait = parseInt(resp.headers.get('Retry-After') || '5') * 1000;
+      await sleep(wait); continue;
+    }
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(`Graph error ${resp.status}: ${err?.error?.message || resp.statusText}`);
+    }
+    return resp.json();
+  }
+  throw new Error('Max retries exceeded (throttled).');
+}
+
+async function graphGetAll(url) {
+  let results = [];
+  let nextUrl = url;
+  while (nextUrl) {
+    const data = await graphGet(nextUrl);
+    results = results.concat(data.value || []);
+    nextUrl = data['@odata.nextLink'] || null;
+  }
+  return results;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ══════════════════════════════════════════════
+// ENUMERATE
+// ══════════════════════════════════════════════
+let logEl, progressBarEl, progressStatusEl, progressLeftEl, progressRightEl;
+
+function log(msg, cls = '') {
+  if (!logEl) return;
+  const line = document.createElement('div');
+  line.className = 'log-line ' + cls;
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function setProgress(pct, status) {
+  progressBarEl.style.width = pct + '%';
+  if (status) progressStatusEl.textContent = status;
+}
+
+async function enumerate() {
+  logEl            = document.getElementById('logStream');
+  progressBarEl    = document.getElementById('progressBar');
+  progressStatusEl = document.getElementById('progressStatus');
+  progressLeftEl   = document.getElementById('progressLeft');
+  progressRightEl  = document.getElementById('progressRight');
+
+  log('Connected to Microsoft Graph', 'ok');
+  setProgress(5, 'Fetching all groups…');
+
+  // fetch all groups
+  const groupFields = 'id,displayName,description,groupTypes,mailEnabled,securityEnabled,onPremisesSyncEnabled,onPremisesLastSyncDateTime,membershipRule,mail,proxyAddresses';
+  const rawGroups = await graphGetAll(
+    `https://graph.microsoft.com/v1.0/groups?$select=${groupFields}&$top=999`
+  );
+  log(`Fetched ${rawGroups.length} groups`, 'ok');
+  setProgress(20, `Processing ${rawGroups.length} groups…`);
+  progressLeftEl.textContent = `Groups: ${rawGroups.length}`;
+
+  // classify groups
+  const groups = rawGroups.map(g => ({
+    id:           g.id,
+    displayName:  g.displayName || '(Unnamed)',
+    description:  g.description || '',
+    type:         classifyType(g),
+    source:       g.onPremisesSyncEnabled ? 'on-prem' : 'cloud',
+    onPremSync:   !!g.onPremisesSyncEnabled,
+    owners:       [],
+    members:      [],
+    ownerCount:   0,
+    memberCount:  0,
+    _raw:         g
+  }));
+
+  // fetch owners + members in batches of 5
+  const CONCURRENCY = 5;
+  let done = 0, totalMembers = 0;
+
+  for (let i = 0; i < groups.length; i += CONCURRENCY) {
+    const batch = groups.slice(i, i + CONCURRENCY);
+    await Promise.all(batch.map(async g => {
+      try {
+        const [ownersData, membersData] = await Promise.all([
+          graphGetAll(`https://graph.microsoft.com/v1.0/groups/${g.id}/owners?$select=id,displayName,userPrincipalName,mail`),
+          graphGetAll(`https://graph.microsoft.com/v1.0/groups/${g.id}/members?$select=id,displayName,userPrincipalName,mail`)
+        ]);
+        g.owners      = ownersData;
+        g.ownerCount  = ownersData.length;
+        g.members     = membersData;
+        g.memberCount = membersData.length;
+        totalMembers += membersData.length;
+      } catch(e) {
+        log(`⚠ ${g.displayName}: ${e.message}`, 'warn');
+      }
+      done++;
+      const pct = 20 + Math.round((done / groups.length) * 75);
+      setProgress(pct, `Fetching owners & members… (${done}/${groups.length})`);
+      progressLeftEl.textContent  = `Groups: ${done}/${groups.length}`;
+      progressRightEl.textContent = `Members found: ${totalMembers}`;
+    }));
+    await sleep(50); // small breathe between batches
+  }
+
+  const noOwner = groups.filter(g => g.ownerCount === 0).length;
+  log(`Enumeration complete — ${groups.length} groups, ${noOwner} without owners`, 'ok');
+  setProgress(100, 'Complete!');
+  await sleep(600);
+
+  appState.allGroups = groups;
+  renderResults();
+  showSection('resultsSection');
+}
+
+function classifyType(g) {
+  if (g.groupTypes && g.groupTypes.includes('Unified')) return 'm365';
+  if (g.mailEnabled && !g.securityEnabled) return 'distribution';
+  if (g.securityEnabled) return 'security';
+  return 'other';
+}
+
+// ══════════════════════════════════════════════
+// RENDER RESULTS
+// ══════════════════════════════════════════════
+function renderResults() {
+  renderStats();
+  applyFilters();
+}
+
+function renderStats() {
+  const g = appState.allGroups;
+  const noOwner   = g.filter(x => x.ownerCount === 0).length;
+  const onPrem    = g.filter(x => x.source === 'on-prem').length;
+  const totalMem  = g.reduce((a, x) => a + x.memberCount, 0);
+  const security  = g.filter(x => x.type === 'security').length;
+
+  document.getElementById('statsRow').innerHTML = `
+    <div class="stat-card">
+      <div class="stat-label">Total Groups</div>
+      <div class="stat-value">${g.length}</div>
+      <div class="stat-sub">${onPrem} on-prem synced</div>
+    </div>
+    <div class="stat-card danger">
+      <div class="stat-label">Missing Owner ⚠</div>
+      <div class="stat-value">${noOwner}</div>
+      <div class="stat-sub">SOX access approval risk</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Security Groups</div>
+      <div class="stat-value">${security}</div>
+      <div class="stat-sub">entitlement bearing</div>
+    </div>
+    <div class="stat-card warning">
+      <div class="stat-label">Total Members</div>
+      <div class="stat-value">${totalMem.toLocaleString()}</div>
+      <div class="stat-sub">across all groups</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Owner Coverage</div>
+      <div class="stat-value">${g.length > 0 ? Math.round(((g.length - noOwner) / g.length) * 100) : 0}%</div>
+      <div class="stat-sub">${g.length - noOwner} of ${g.length} assigned</div>
+    </div>
+  `;
+}
+
+let currentFilter = 'all';
+let currentSearch = '';
+let sortKey = 'displayName', sortDir = 1;
+
+function setFilter(f) {
+  currentFilter = f;
+  ['all','noOwner','security','m365','onprem'].forEach(k => {
+    const el = document.getElementById('f' + k.charAt(0).toUpperCase() + k.slice(1));
+    if (el) el.classList.remove('active');
+  });
+  const map = { all: 'fAll', noOwner: 'fNoOwner', security: 'fSecurity', m365: 'fM365', onprem: 'fOnPrem' };
+  document.getElementById(map[f]).classList.add('active');
+  applyFilters();
+}
+
+function applyFilters() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  let groups = appState.allGroups;
+
+  // filter
+  if (currentFilter === 'noOwner')  groups = groups.filter(g => g.ownerCount === 0);
+  if (currentFilter === 'security') groups = groups.filter(g => g.type === 'security');
+  if (currentFilter === 'm365')     groups = groups.filter(g => g.type === 'm365');
+  if (currentFilter === 'onprem')   groups = groups.filter(g => g.source === 'on-prem');
+
+  // search
+  if (q) groups = groups.filter(g =>
+    g.displayName.toLowerCase().includes(q) ||
+    g.description.toLowerCase().includes(q) ||
+    g.owners.some(o => (o.displayName || '').toLowerCase().includes(q) || (o.userPrincipalName || '').toLowerCase().includes(q))
+  );
+
+  // sort
+  groups = [...groups].sort((a, b) => {
+    let av = a[sortKey] ?? '', bv = b[sortKey] ?? '';
+    if (typeof av === 'string') av = av.toLowerCase(), bv = bv.toLowerCase();
+    return av < bv ? -sortDir : av > bv ? sortDir : 0;
+  });
+
+  appState.filteredGroups = groups;
+  document.getElementById('resultInfo').innerHTML =
+    `Showing <span>${groups.length}</span> of <span>${appState.allGroups.length}</span> groups`;
+  renderGroupsList();
+}
+
+function sortBy(key) {
+  if (sortKey === key) sortDir *= -1;
+  else { sortKey = key; sortDir = 1; }
+  document.querySelectorAll('.sort-arrow').forEach(el => el.textContent = '↕');
+  document.querySelectorAll('.th').forEach(el => el.classList.remove('sorted'));
+  const arrow = document.getElementById('sort_' + key);
+  if (arrow) { arrow.textContent = sortDir === 1 ? '↑' : '↓'; arrow.closest('.th').classList.add('sorted'); }
+  applyFilters();
+}
+
+function renderGroupsList() {
+  const container = document.getElementById('groupsList');
+  if (appState.filteredGroups.length === 0) {
+    container.innerHTML = '<div class="empty-state">No groups match the current filters.</div>';
+    return;
+  }
+  container.innerHTML = appState.filteredGroups.map(g => renderGroupRow(g)).join('');
+}
+
+function renderGroupRow(g) {
+  const isExpanded = appState.expandedRows.has(g.id);
+  const typeBadge  = typeToHtml(g.type);
+  const srcBadge   = g.source === 'on-prem'
+    ? '<span class="badge badge-onprem">On-Prem</span>'
+    : '<span class="badge badge-cloud">Cloud</span>';
+
+  const ownerHtml = g.ownerCount === 0
+    ? `<div class="owner-cell"><div class="owner-dot none"></div><span class="owner-name missing">UNASSIGNED</span></div>`
+    : `<div class="owner-cell"><div class="owner-dot ok"></div><span class="owner-name">${esc(g.owners[0].displayName)}${g.ownerCount > 1 ? ` +${g.ownerCount-1}` : ''}</span></div>`;
+
+  const riskHtml = g.ownerCount === 0
+    ? `<span class="badge" style="background:rgba(232,69,69,0.12);color:var(--red);border-color:rgba(232,69,69,0.3)">HIGH</span>`
+    : `<span class="badge" style="background:rgba(34,197,94,0.08);color:var(--green);border-color:rgba(34,197,94,0.2)">OK</span>`;
+
+  const membersHtml = renderMembersPanel(g);
+
+  return `
+    <div class="group-row ${g.ownerCount === 0 ? 'no-owner' : 'has-owner'} ${isExpanded ? 'expanded' : ''}" id="row_${g.id}">
+      <div class="group-row-main" onclick="toggleRow('${g.id}')">
+        <div class="expand-icon">▶</div>
+        <div>
+          <div class="group-name">${esc(g.displayName)}</div>
+          ${g.description ? `<div class="group-desc">${esc(g.description)}</div>` : ''}
+        </div>
+        <div class="td">${typeBadge}</div>
+        <div class="td">${srcBadge}</div>
+        <div class="td member-count">${g.memberCount.toLocaleString()}</div>
+        <div class="td">${ownerHtml}</div>
+        <div class="td">${riskHtml}</div>
+      </div>
+      <div class="members-panel">${membersHtml}</div>
+    </div>`;
+}
+
+function renderMembersPanel(g) {
+  const noOwnerAlert = g.ownerCount === 0
+    ? `<div class="no-owner-alert">⚠ No owner assigned — helpdesk cannot identify an approver for access requests to this group.</div>`
+    : '';
+
+  const ownersSection = g.ownerCount > 0 ? `
+    <div class="members-section-title">Owners <span>(${g.ownerCount})</span></div>
+    <div class="owners-list">
+      ${g.owners.map(o => `
+        <div class="owner-chip">
+          <span class="member-type-icon">👑</span>
+          <div class="member-info">
+            <div class="member-name">${esc(o.displayName || 'Unknown')}</div>
+            <div class="member-upn">${esc(o.userPrincipalName || o.mail || o.id)}</div>
+          </div>
+        </div>`).join('')}
+    </div>` : '';
+
+  const membersSection = g.memberCount === 0
+    ? `<div class="members-section-title">Members</div><div class="empty-members">No members in this group.</div>`
+    : `<div class="members-section-title">Members <span>(${g.memberCount})</span></div>
+       <div class="members-grid">
+         ${g.members.slice(0, 100).map(m => {
+           const isUser = (m['@odata.type'] || '').includes('user');
+           const isGroup = (m['@odata.type'] || '').includes('group');
+           const icon = isUser ? '👤' : isGroup ? '👥' : '⚙';
+           return `<div class="member-chip">
+             <span class="member-type-icon">${icon}</span>
+             <div class="member-info">
+               <div class="member-name">${esc(m.displayName || 'Unknown')}</div>
+               <div class="member-upn">${esc(m.userPrincipalName || m.mail || m.id)}</div>
+             </div>
+           </div>`;
+         }).join('')}
+         ${g.memberCount > 100 ? `<div class="member-chip"><div class="member-info"><div class="member-name" style="color:var(--text-dim)">+ ${g.memberCount - 100} more members</div><div class="member-upn">Export CSV for full list</div></div></div>` : ''}
+       </div>`;
+
+  return noOwnerAlert + ownersSection + membersSection;
+}
+
+function typeToHtml(t) {
+  const map = {
+    security:     '<span class="badge badge-security">Security</span>',
+    m365:         '<span class="badge badge-m365">M365</span>',
+    distribution: '<span class="badge badge-dist">Dist</span>',
+    other:        '<span class="badge badge-onprem">Other</span>'
+  };
+  return map[t] || map.other;
+}
+
+function toggleRow(id) {
+  const row = document.getElementById('row_' + id);
+  if (!row) return;
+  if (appState.expandedRows.has(id)) {
+    appState.expandedRows.delete(id);
+    row.classList.remove('expanded');
+  } else {
+    appState.expandedRows.add(id);
+    row.classList.add('expanded');
+  }
+}
+
+// ══════════════════════════════════════════════
+// CSV EXPORT
+// ══════════════════════════════════════════════
+function exportCSV() {
+  const rows = [
+    ['Group Name', 'Description', 'Type', 'Source', 'Owner Count', 'Owners (UPN)', 'Member Count', 'Members (Display Name + UPN)', 'SOX Risk']
+  ];
+  appState.allGroups.forEach(g => {
+    const ownerList = g.owners.map(o => `${o.displayName || ''} <${o.userPrincipalName || o.mail || o.id}>`).join(' | ');
+    const memberList = g.members.slice(0, 200).map(m => `${m.displayName || ''} <${m.userPrincipalName || m.mail || m.id}>`).join(' | ');
+    rows.push([
+      g.displayName, g.description, g.type, g.source,
+      g.ownerCount, ownerList, g.memberCount, memberList,
+      g.ownerCount === 0 ? 'HIGH' : 'OK'
+    ]);
+  });
+
+  const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = `ownermap-audit-${new Date().toISOString().split('T')[0]}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
+// ══════════════════════════════════════════════
+// UTILS
+// ══════════════════════════════════════════════
+function showSection(id) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function resetApp() {
+  appState = { mode: 'delegated', token: null, msalInstance: null, allGroups: [], filteredGroups: [], currentFilter: 'all', sortKey: 'displayName', sortDir: 1, expandedRows: new Set() };
+  showSection('authSection');
+  document.getElementById('connectBtn').disabled = false;
+  document.getElementById('connectBtn').textContent = 'Connect & Enumerate Groups';
+  clearError();
+}
+
+// Handle MSAL redirect on page load
+window.addEventListener('load', async () => {
+  // Check for MSAL redirect hash
+  if (window.location.hash && window.location.hash.includes('access_token')) {
+    // Let MSAL handle it
+  }
+});
+</script>
+</body>
+</html>
