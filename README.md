@@ -6,7 +6,7 @@ OwnerMap is a single-file browser tool that enumerates all your Entra ID (Azure 
 
 Open the HTML file. Connect. Get answers.
 
-![OwnerMap Screenshot](docs/screenshot.png)
+
 
 ---
 
