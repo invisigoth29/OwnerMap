@@ -552,6 +552,7 @@ let appState = {
   msalInstance: null,
   allGroups: [],
   filteredGroups: [],
+  unassignedUsers: 0,
   currentFilter: 'all',
   sortKey: 'displayName',
   sortDir: 1,
@@ -743,6 +744,24 @@ async function enumerate() {
 
   const noOwner = groups.filter(g => g.ownerCount === 0).length;
   log(`Enumeration complete — ${groups.length} groups, ${noOwner} without owners`, 'ok');
+
+  // calculate unassigned users (members of zero groups)
+  setProgress(97, 'Checking for unassigned users…');
+  log('Fetching all enabled user accounts…');
+  try {
+    const allUsers = await graphGetAll(
+      `https://graph.microsoft.com/v1.0/users?$select=id&$filter=accountEnabled eq true&$top=999`
+    );
+    const assignedIds = new Set(
+      groups.flatMap(g => g.members.map(m => m.id))
+    );
+    appState.unassignedUsers = allUsers.filter(u => !assignedIds.has(u.id)).length;
+    log(`Found ${appState.unassignedUsers} users with no group memberships`, appState.unassignedUsers > 0 ? 'warn' : 'ok');
+  } catch(e) {
+    log(`Could not calculate unassigned users: ${e.message}`, 'warn');
+    appState.unassignedUsers = 0;
+  }
+
   setProgress(100, 'Complete!');
   await sleep(600);
 
@@ -770,7 +789,6 @@ function renderStats() {
   const g = appState.allGroups;
   const noOwner   = g.filter(x => x.ownerCount === 0).length;
   const onPrem    = g.filter(x => x.source === 'on-prem').length;
-  const totalMem  = g.reduce((a, x) => a + x.memberCount, 0);
   const security  = g.filter(x => x.type === 'security').length;
 
   document.getElementById('statsRow').innerHTML = `
@@ -789,10 +807,10 @@ function renderStats() {
       <div class="stat-value">${security}</div>
       <div class="stat-sub">entitlement bearing</div>
     </div>
-    <div class="stat-card warning">
-      <div class="stat-label">Total Members</div>
-      <div class="stat-value">${totalMem.toLocaleString()}</div>
-      <div class="stat-sub">across all groups</div>
+    <div class="stat-card ${appState.unassignedUsers > 0 ? 'danger' : ''}">
+      <div class="stat-label">Unassigned Users ${appState.unassignedUsers > 0 ? '⚠' : ''}</div>
+      <div class="stat-value">${appState.unassignedUsers.toLocaleString()}</div>
+      <div class="stat-sub">no group membership · stale account risk</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">Owner Coverage</div>
